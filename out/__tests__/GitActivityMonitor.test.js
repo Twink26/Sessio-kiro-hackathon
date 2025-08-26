@@ -23,20 +23,19 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const vscode = __importStar(require("vscode"));
-const fs = __importStar(require("fs"));
-const path = __importStar(require("path"));
-const util_1 = require("util");
-const GitActivityMonitor_1 = require("../services/GitActivityMonitor");
-// Mock dependencies
+// Mock dependencies first
+const mockExec = jest.fn();
 jest.mock('vscode');
 jest.mock('child_process');
 jest.mock('fs');
 jest.mock('path');
-jest.mock('util');
-const mockExec = jest.fn();
-const mockPromisify = util_1.promisify;
-mockPromisify.mockReturnValue(mockExec);
+jest.mock('util', () => ({
+    promisify: () => mockExec
+}));
+const vscode = __importStar(require("vscode"));
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const GitActivityMonitor_1 = require("../services/GitActivityMonitor");
 const mockFs = fs;
 const mockPath = path;
 const mockVscode = vscode;
@@ -169,6 +168,7 @@ src/file3.ts`;
         });
         it('should handle malformed git log output gracefully', async () => {
             const malformedOutput = `invalid-format
+
 abc123|Valid commit|John Doe|2024-01-01T12:00:00Z
 src/file1.ts
 
