@@ -51,6 +51,23 @@
           "default": "disabled",
           "description": "AI provider for generating summaries"
         },
+        "sessionRecap.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API key for generating summaries"
+        },
+        "sessionRecap.aiMaxTokens": {
+          "type": "number",
+          "default": 150,
+          "description": "Maximum tokens for AI summary generation"
+        },
+        "sessionRecap.aiTemperature": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Temperature setting for AI creativity (0-2)"
+        },
         "sessionRecap.enableTeamDashboard": {
           "type": "boolean",
           "default": false,
