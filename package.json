@@ -89,6 +89,18 @@
             ".git/**"
           ],
           "description": "File patterns to exclude from tracking"
+        },
+        "sessionRecap.privacySettings.excludeCommitPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "WIP:",
+            "temp:",
+            "debug:"
+          ],
+          "description": "Commit message patterns to exclude from tracking"
         }
       }
     }
