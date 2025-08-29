@@ -23,6 +23,37 @@
         }
       ]
     },
+    "commands": [
+      {
+        "command": "sessionRecap.refresh",
+        "title": "Refresh Session Recap",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sessionRecap.clear",
+        "title": "Clear Session Data",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "sessionRecap.showLogs",
+        "title": "Show Session Recap Logs",
+        "icon": "$(output)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sessionRecap.refresh",
+          "when": "view == sessionRecap",
+          "group": "navigation"
+        },
+        {
+          "command": "sessionRecap.showLogs",
+          "when": "view == sessionRecap",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Session Recap",
       "properties": {
