@@ -20,6 +20,11 @@
           "id": "sessionRecap",
           "name": "Session Recap",
           "when": "true"
+        },
+        {
+          "id": "teamDashboard",
+          "name": "Team Dashboard",
+          "when": "config.sessionRecap.enableTeamDashboard"
         }
       ]
     },
@@ -33,6 +38,21 @@
         "command": "sessionRecap.clear",
         "title": "Clear Session Data",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "sessionRecap.refreshTeam",
+        "title": "Refresh Team Dashboard",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sessionRecap.optInTeam",
+        "title": "Opt In to Team Sharing",
+        "icon": "$(account)"
+      },
+      {
+        "command": "sessionRecap.optOutTeam",
+        "title": "Opt Out of Team Sharing",
+        "icon": "$(account)"
       },
       {
         "command": "sessionRecap.showLogs",
@@ -50,6 +70,21 @@
         {
           "command": "sessionRecap.showLogs",
           "when": "view == sessionRecap",
+          "group": "navigation"
+        },
+        {
+          "command": "sessionRecap.refreshTeam",
+          "when": "view == teamDashboard",
+          "group": "navigation"
+        },
+        {
+          "command": "sessionRecap.optInTeam",
+          "when": "view == teamDashboard && !config.sessionRecap.privacySettings.shareWithTeam",
+          "group": "navigation"
+        },
+        {
+          "command": "sessionRecap.optOutTeam",
+          "when": "view == teamDashboard && config.sessionRecap.privacySettings.shareWithTeam",
           "group": "navigation"
         }
       ]

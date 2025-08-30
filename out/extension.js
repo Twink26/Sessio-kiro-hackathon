@@ -29,24 +29,41 @@ const path = __importStar(require("path"));
 const SessionTracker_1 = require("./services/SessionTracker");
 const SidebarPanelProvider_1 = require("./providers/SidebarPanelProvider");
 const AISummaryService_1 = require("./services/AISummaryService");
+const TeamDashboardProvider_1 = require("./providers/TeamDashboardProvider");
+const TeamDataAggregator_1 = require("./services/TeamDataAggregator");
+const TeamDashboardService_1 = require("./services/TeamDashboardService");
+const ConfigurationService_1 = require("./services/ConfigurationService");
 let sessionTracker;
 let sidebarProvider;
 let aiSummaryService;
+let teamDashboardProvider;
+let teamDataAggregator;
+let teamDashboardService;
+let configurationService;
 let outputChannel;
 /**
  * Extension activation function
  * Called when VS Code starts up (onStartupFinished activation event)
  */
-function activate(context) {
+async function activate(context) {
     console.log('Session Recap extension is now active');
     try {
         // Create output channel for logging
         outputChannel = vscode.window.createOutputChannel('Session Recap');
         context.subscriptions.push(outputChannel);
+        // Initialize configuration service
+        configurationService = new ConfigurationService_1.ConfigurationService();
+        context.subscriptions.push(configurationService);
         // Initialize the sidebar panel provider
         sidebarProvider = new SidebarPanelProvider_1.SidebarPanelProvider(context.extensionUri);
         // Register the webview provider
         context.subscriptions.push(vscode.window.registerWebviewViewProvider('sessionRecap', sidebarProvider));
+        // Initialize team dashboard components
+        teamDashboardProvider = new TeamDashboardProvider_1.TeamDashboardProvider(context.extensionUri);
+        teamDataAggregator = new TeamDataAggregator_1.TeamDataAggregator(context, configurationService, outputChannel);
+        teamDashboardService = new TeamDashboardService_1.TeamDashboardService(teamDataAggregator, teamDashboardProvider, outputChannel);
+        // Register team dashboard webview provider
+        context.subscriptions.push(vscode.window.registerWebviewViewProvider('teamDashboard', teamDashboardProvider));
         // Initialize AI summary service
         aiSummaryService = new AISummaryService_1.AISummaryService(outputChannel);
         // Initialize session tracker
@@ -57,6 +74,8 @@ function activate(context) {
         });
         // Load and display previous session data with AI summary
         loadAndDisplayPreviousSession();
+        // Initialize team dashboard
+        await initializeTeamDashboard();
         // Start tracking the new session
         sessionTracker.startTracking();
         // Register commands
@@ -84,7 +103,12 @@ async function deactivate() {
         if (sessionTracker) {
             // Save current session before deactivation
             try {
+                const currentSession = sessionTracker.getCurrentSession();
                 await sessionTracker.saveSession();
+                // Share session data with team if enabled
+                if (teamDashboardService && currentSession) {
+                    await teamDashboardService.shareSessionData(currentSession);
+                }
             }
             catch (error) {
                 console.error('Failed to save session during deactivation:', error);
@@ -98,6 +122,10 @@ async function deactivate() {
             if ('dispose' in sessionTracker) {
                 sessionTracker.dispose();
             }
+        }
+        // Dispose team dashboard service
+        if (teamDashboardService) {
+            teamDashboardService.dispose();
         }
         if (outputChannel) {
             outputChannel.appendLine('Session Recap extension deactivated');
@@ -211,6 +239,21 @@ async function openFile(filePath) {
     }
 }
 /**
+ * Initialize team dashboard
+ */
+async function initializeTeamDashboard() {
+    try {
+        if (teamDashboardService) {
+            await teamDashboardService.initialize();
+            outputChannel.appendLine('Team dashboard initialized');
+        }
+    }
+    catch (error) {
+        outputChannel.appendLine(`Failed to initialize team dashboard: ${error}`);
+        // Don't throw error - team dashboard is optional functionality
+    }
+}
+/**
  * Register extension commands
  */
 function registerCommands(context) {
@@ -242,10 +285,53 @@ function registerCommands(context) {
             vscode.window.showErrorMessage('Failed to clear session data');
         }
     });
+    // Command to refresh team dashboard
+    const refreshTeamCommand = vscode.commands.registerCommand('sessionRecap.refreshTeam', async () => {
+        try {
+            if (teamDashboardService) {
+                await teamDashboardService.refreshDashboard();
+                vscode.window.showInformationMessage('Team dashboard refreshed');
+            }
+        }
+        catch (error) {
+            const errorMessage = `Failed to refresh team dashboard: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            console.error(errorMessage);
+            outputChannel.appendLine(`Team Refresh Error: ${errorMessage}`);
+            vscode.window.showErrorMessage('Failed to refresh team dashboard');
+        }
+    });
+    // Command to opt in to team sharing
+    const optInCommand = vscode.commands.registerCommand('sessionRecap.optInTeam', async () => {
+        try {
+            if (teamDashboardService) {
+                await teamDashboardService.handleOptIn();
+            }
+        }
+        catch (error) {
+            const errorMessage = `Failed to opt in to team sharing: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            console.error(errorMessage);
+            outputChannel.appendLine(`Opt-in Error: ${errorMessage}`);
+            vscode.window.showErrorMessage('Failed to opt in to team sharing');
+        }
+    });
+    // Command to opt out of team sharing
+    const optOutCommand = vscode.commands.registerCommand('sessionRecap.optOutTeam', async () => {
+        try {
+            if (teamDashboardService) {
+                await teamDashboardService.handleOptOut();
+            }
+        }
+        catch (error) {
+            const errorMessage = `Failed to opt out of team sharing: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            console.error(errorMessage);
+            outputChannel.appendLine(`Opt-out Error: ${errorMessage}`);
+            vscode.window.showErrorMessage('Failed to opt out of team sharing');
+        }
+    });
     // Command to show output channel
     const showLogsCommand = vscode.commands.registerCommand('sessionRecap.showLogs', () => {
         outputChannel.show();
     });
-    context.subscriptions.push(refreshCommand, clearCommand, showLogsCommand);
+    context.subscriptions.push(refreshCommand, clearCommand, refreshTeamCommand, optInCommand, optOutCommand, showLogsCommand);
 }
 //# sourceMappingURL=extension.js.map
