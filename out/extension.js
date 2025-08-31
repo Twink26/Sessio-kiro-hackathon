@@ -33,6 +33,8 @@ const TeamDashboardProvider_1 = require("./providers/TeamDashboardProvider");
 const TeamDataAggregator_1 = require("./services/TeamDataAggregator");
 const TeamDashboardService_1 = require("./services/TeamDashboardService");
 const ConfigurationService_1 = require("./services/ConfigurationService");
+const ErrorHandlingService_1 = require("./services/ErrorHandlingService");
+const LoggingService_1 = require("./services/LoggingService");
 let sessionTracker;
 let sidebarProvider;
 let aiSummaryService;
@@ -40,48 +42,72 @@ let teamDashboardProvider;
 let teamDataAggregator;
 let teamDashboardService;
 let configurationService;
+let errorHandlingService;
 let outputChannel;
 /**
  * Extension activation function
  * Called when VS Code starts up (onStartupFinished activation event)
  */
 async function activate(context) {
-    console.log('Session Recap extension is now active');
     try {
         // Create output channel for logging
         outputChannel = vscode.window.createOutputChannel('Session Recap');
         context.subscriptions.push(outputChannel);
-        // Initialize configuration service
-        configurationService = new ConfigurationService_1.ConfigurationService();
-        context.subscriptions.push(configurationService);
-        // Initialize the sidebar panel provider
-        sidebarProvider = new SidebarPanelProvider_1.SidebarPanelProvider(context.extensionUri);
-        // Register the webview provider
-        context.subscriptions.push(vscode.window.registerWebviewViewProvider('sessionRecap', sidebarProvider));
-        // Initialize team dashboard components
-        teamDashboardProvider = new TeamDashboardProvider_1.TeamDashboardProvider(context.extensionUri);
-        teamDataAggregator = new TeamDataAggregator_1.TeamDataAggregator(context, configurationService, outputChannel);
-        teamDashboardService = new TeamDashboardService_1.TeamDashboardService(teamDataAggregator, teamDashboardProvider, outputChannel);
-        // Register team dashboard webview provider
-        context.subscriptions.push(vscode.window.registerWebviewViewProvider('teamDashboard', teamDashboardProvider));
-        // Initialize AI summary service
-        aiSummaryService = new AISummaryService_1.AISummaryService(outputChannel);
-        // Initialize session tracker
-        sessionTracker = new SessionTracker_1.SessionTracker(context, sidebarProvider);
+        // Initialize error handling service with appropriate log level
+        const config = vscode.workspace.getConfiguration('sessionRecap');
+        const logLevel = config.get('logLevel', 'info');
+        const logLevelEnum = LoggingService_1.LogLevel[logLevel.toUpperCase()] || LoggingService_1.LogLevel.INFO;
+        errorHandlingService = new ErrorHandlingService_1.ErrorHandlingService(outputChannel, logLevelEnum);
+        context.subscriptions.push(errorHandlingService);
+        errorHandlingService.logInfo('Extension', 'Session Recap extension is now active', true);
+        // Initialize configuration service with error handling
+        await errorHandlingService.executeWithErrorHandling(async () => {
+            configurationService = new ConfigurationService_1.ConfigurationService();
+            context.subscriptions.push(configurationService);
+        }, { component: 'Extension', operation: 'initializeConfiguration' });
+        // Initialize the sidebar panel provider with error handling
+        await errorHandlingService.executeWithErrorHandling(async () => {
+            sidebarProvider = new SidebarPanelProvider_1.SidebarPanelProvider(context.extensionUri);
+            context.subscriptions.push(vscode.window.registerWebviewViewProvider('sessionRecap', sidebarProvider));
+        }, { component: 'Extension', operation: 'initializeSidebar' });
+        // Initialize team dashboard components with error handling
+        await errorHandlingService.executeWithErrorHandling(async () => {
+            teamDashboardProvider = new TeamDashboardProvider_1.TeamDashboardProvider(context.extensionUri);
+            teamDataAggregator = new TeamDataAggregator_1.TeamDataAggregator(context, configurationService, outputChannel);
+            teamDashboardService = new TeamDashboardService_1.TeamDashboardService(teamDataAggregator, teamDashboardProvider, outputChannel);
+            context.subscriptions.push(vscode.window.registerWebviewViewProvider('teamDashboard', teamDashboardProvider));
+        }, { component: 'Extension', operation: 'initializeTeamDashboard' });
+        // Initialize AI summary service with error handling
+        await errorHandlingService.executeWithErrorHandling(async () => {
+            aiSummaryService = new AISummaryService_1.AISummaryService(outputChannel);
+        }, { component: 'Extension', operation: 'initializeAIService' });
+        // Initialize session tracker with error handling
+        await errorHandlingService.executeWithErrorHandling(async () => {
+            sessionTracker = new SessionTracker_1.SessionTracker(context, sidebarProvider);
+        }, { component: 'Extension', operation: 'initializeSessionTracker' });
         // Set up file click handler for sidebar
-        sidebarProvider.onFileClick((filePath) => {
-            openFile(filePath);
-        });
+        if (sidebarProvider) {
+            sidebarProvider.onFileClick((filePath) => {
+                openFile(filePath);
+            });
+        }
         // Load and display previous session data with AI summary
-        loadAndDisplayPreviousSession();
+        await errorHandlingService.executeWithErrorHandling(async () => {
+            await loadAndDisplayPreviousSession();
+        }, { component: 'Extension', operation: 'loadPreviousSession' });
         // Initialize team dashboard
-        await initializeTeamDashboard();
+        await errorHandlingService.executeWithErrorHandling(async () => {
+            await initializeTeamDashboard();
+        }, { component: 'Extension', operation: 'initializeTeamDashboard' });
         // Start tracking the new session
-        sessionTracker.startTracking();
+        if (sessionTracker) {
+            await errorHandlingService.executeWithErrorHandling(async () => {
+                sessionTracker.startTracking();
+            }, { component: 'Extension', operation: 'startTracking' });
+        }
         // Register commands
         registerCommands(context);
-        outputChannel.appendLine('Session Recap extension initialization complete');
-        console.log('Session Recap extension initialization complete');
+        errorHandlingService.logInfo('Extension', 'Session Recap extension initialization complete', true);
     }
     catch (error) {
         const errorMessage = `Failed to activate Session Recap extension: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -89,6 +115,9 @@ async function activate(context) {
         vscode.window.showErrorMessage(errorMessage);
         if (outputChannel) {
             outputChannel.appendLine(`Activation Error: ${errorMessage}`);
+        }
+        if (errorHandlingService) {
+            errorHandlingService.getErrorHandler().showUserError('Session Recap extension failed to start. Some features may not work correctly.', ['Show Logs', 'Retry']);
         }
     }
 }
@@ -98,24 +127,21 @@ exports.activate = activate;
  * Called when VS Code is shutting down
  */
 async function deactivate() {
-    console.log('Session Recap extension is deactivating');
+    if (errorHandlingService) {
+        errorHandlingService.logInfo('Extension', 'Session Recap extension is deactivating');
+    }
     try {
-        if (sessionTracker) {
-            // Save current session before deactivation
-            try {
+        if (sessionTracker && errorHandlingService) {
+            // Save current session before deactivation with error handling
+            await errorHandlingService.executeWithErrorHandling(async () => {
                 const currentSession = sessionTracker.getCurrentSession();
                 await sessionTracker.saveSession();
                 // Share session data with team if enabled
                 if (teamDashboardService && currentSession) {
                     await teamDashboardService.shareSessionData(currentSession);
                 }
-            }
-            catch (error) {
-                console.error('Failed to save session during deactivation:', error);
-                if (outputChannel) {
-                    outputChannel.appendLine(`Deactivation save error: ${error}`);
-                }
-            }
+            }, { component: 'Extension', operation: 'saveSessionOnDeactivate' }, undefined // no fallback value needed
+            );
             // Stop tracking
             sessionTracker.stopTracking();
             // Dispose of session tracker if it has a dispose method
@@ -127,13 +153,23 @@ async function deactivate() {
         if (teamDashboardService) {
             teamDashboardService.dispose();
         }
+        // Dispose error handling service last
+        if (errorHandlingService) {
+            errorHandlingService.logInfo('Extension', 'Session Recap extension deactivated');
+            errorHandlingService.dispose();
+        }
         if (outputChannel) {
             outputChannel.appendLine('Session Recap extension deactivated');
         }
-        console.log('Session Recap extension deactivated');
     }
     catch (error) {
         console.error('Error during extension deactivation:', error);
+        if (errorHandlingService) {
+            errorHandlingService.getLoggingService().error('Extension', 'Deactivation error', error, {
+                component: 'Extension',
+                operation: 'deactivate'
+            });
+        }
     }
 }
 exports.deactivate = deactivate;
@@ -141,35 +177,38 @@ exports.deactivate = deactivate;
  * Load and display previous session data with AI summary
  */
 async function loadAndDisplayPreviousSession() {
-    try {
-        outputChannel.appendLine('Loading previous session data...');
+    if (!errorHandlingService) {
+        console.error('Error handling service not initialized');
+        return;
+    }
+    await errorHandlingService.executeWithErrorHandling(async () => {
+        errorHandlingService.logInfo('Extension', 'Loading previous session data...');
         const previousSession = await sessionTracker.ensurePreviousSessionLoaded();
         if (previousSession) {
-            outputChannel.appendLine(`Previous session found: ${previousSession.sessionId}`);
+            errorHandlingService.logInfo('Extension', `Previous session found: ${previousSession.sessionId}`);
             // Generate AI summary if not already present and AI is enabled
             if (!previousSession.summary && aiSummaryService.isAvailable()) {
-                try {
-                    outputChannel.appendLine('Generating AI summary for previous session...');
+                await errorHandlingService.executeWithErrorHandling(async () => {
+                    errorHandlingService.logInfo('Extension', 'Generating AI summary for previous session...');
                     const aiSummary = await aiSummaryService.generateSummary(previousSession);
                     previousSession.summary = aiSummary;
-                    outputChannel.appendLine('AI summary generated successfully');
-                }
-                catch (aiError) {
-                    outputChannel.appendLine(`AI summary generation failed: ${aiError}`);
-                    // Generate fallback summary
+                    errorHandlingService.logInfo('Extension', 'AI summary generated successfully');
+                }, { component: 'Extension', operation: 'generateAISummary' }, undefined // Will use fallback from error handler
+                );
+                // If AI summary failed, generate fallback
+                if (!previousSession.summary) {
                     previousSession.summary = aiSummaryService.generateFallbackSummary(previousSession);
-                    outputChannel.appendLine('Using fallback summary');
+                    errorHandlingService.logInfo('Extension', 'Using fallback summary after AI failure');
                 }
             }
             else if (!previousSession.summary) {
                 // Generate fallback summary if AI is not available
                 previousSession.summary = aiSummaryService.generateFallbackSummary(previousSession);
-                outputChannel.appendLine('Generated fallback summary (AI disabled)');
+                errorHandlingService.logInfo('Extension', 'Generated fallback summary (AI disabled)');
             }
             // Update sidebar with previous session data
             sidebarProvider.updateContent(previousSession);
-            outputChannel.appendLine('Previous session displayed in sidebar');
-            console.log('Previous session loaded and displayed');
+            errorHandlingService.logInfo('Extension', 'Previous session displayed in sidebar');
         }
         else {
             // Show welcome message for first-time users
@@ -182,42 +221,19 @@ async function loadAndDisplayPreviousSession() {
                 summary: 'Welcome to Session Recap! This is your first session. Start coding and your activity will be tracked here.'
             };
             sidebarProvider.updateContent(welcomeSession);
-            outputChannel.appendLine('No previous session found, showing welcome message');
-            console.log('No previous session found, showing welcome message');
+            errorHandlingService.logInfo('Extension', 'No previous session found, showing welcome message');
         }
-    }
-    catch (error) {
-        const errorMessage = `Failed to load previous session: ${error instanceof Error ? error.message : 'Unknown error'}`;
-        console.error(errorMessage);
-        outputChannel.appendLine(`Error: ${errorMessage}`);
-        // Show error state in sidebar
-        try {
-            const errorSession = {
-                sessionId: 'error',
-                startTime: new Date(),
-                editedFiles: [],
-                gitCommits: [],
-                terminalErrors: [],
-                summary: 'Failed to load previous session data. Please check the output channel for details.'
-            };
-            sidebarProvider.updateContent(errorSession);
-        }
-        catch (sidebarError) {
-            console.error('Failed to update sidebar with error state:', sidebarError);
-        }
-        // Show user-friendly error message
-        vscode.window.showWarningMessage('Session Recap: Could not load previous session data. The extension will continue to work normally.', 'View Logs').then(selection => {
-            if (selection === 'View Logs') {
-                outputChannel.show();
-            }
-        });
-    }
+    }, { component: 'Extension', operation: 'loadPreviousSession' });
 }
 /**
  * Open a file in the VS Code editor
  */
 async function openFile(filePath) {
-    try {
+    if (!errorHandlingService) {
+        console.error('Error handling service not initialized');
+        return;
+    }
+    await errorHandlingService.executeWithErrorHandling(async () => {
         // Convert relative path to absolute if needed
         let absolutePath = filePath;
         if (!path.isAbsolute(filePath)) {
@@ -229,29 +245,28 @@ async function openFile(filePath) {
         const uri = vscode.Uri.file(absolutePath);
         const document = await vscode.workspace.openTextDocument(uri);
         await vscode.window.showTextDocument(document);
-        outputChannel.appendLine(`Opened file: ${filePath}`);
-    }
-    catch (error) {
-        const errorMessage = `Failed to open file ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-        console.error(errorMessage);
-        outputChannel.appendLine(`Error: ${errorMessage}`);
-        vscode.window.showErrorMessage(`Could not open file: ${path.basename(filePath)}`);
-    }
+        errorHandlingService.logInfo('Extension', `Opened file: ${filePath}`);
+    }, {
+        component: 'Extension',
+        operation: 'openFile',
+        additionalData: { filePath }
+    });
 }
 /**
  * Initialize team dashboard
  */
 async function initializeTeamDashboard() {
-    try {
+    if (!errorHandlingService) {
+        console.error('Error handling service not initialized');
+        return;
+    }
+    await errorHandlingService.executeWithErrorHandling(async () => {
         if (teamDashboardService) {
             await teamDashboardService.initialize();
-            outputChannel.appendLine('Team dashboard initialized');
+            errorHandlingService.logInfo('Extension', 'Team dashboard initialized');
         }
-    }
-    catch (error) {
-        outputChannel.appendLine(`Failed to initialize team dashboard: ${error}`);
-        // Don't throw error - team dashboard is optional functionality
-    }
+    }, { component: 'Extension', operation: 'initializeTeamDashboard' }, undefined // No fallback needed - team dashboard is optional
+    );
 }
 /**
  * Register extension commands
@@ -259,79 +274,86 @@ async function initializeTeamDashboard() {
 function registerCommands(context) {
     // Command to manually refresh the session recap
     const refreshCommand = vscode.commands.registerCommand('sessionRecap.refresh', async () => {
-        try {
-            outputChannel.appendLine('Manual refresh requested');
-            await loadAndDisplayPreviousSession();
-            vscode.window.showInformationMessage('Session recap refreshed');
-        }
-        catch (error) {
-            const errorMessage = `Failed to refresh session recap: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            console.error(errorMessage);
-            outputChannel.appendLine(`Refresh Error: ${errorMessage}`);
-            vscode.window.showErrorMessage('Failed to refresh session recap');
+        if (errorHandlingService) {
+            await errorHandlingService.executeWithErrorHandling(async () => {
+                errorHandlingService.logInfo('Extension', 'Manual refresh requested');
+                await loadAndDisplayPreviousSession();
+                errorHandlingService.getErrorHandler().showUserInfo('Session recap refreshed');
+            }, { component: 'Extension', operation: 'manualRefresh' });
         }
     });
     // Command to clear current session data
-    const clearCommand = vscode.commands.registerCommand('sessionRecap.clear', () => {
-        try {
-            sessionTracker.reset();
-            outputChannel.appendLine('Session data cleared');
-            vscode.window.showInformationMessage('Session data cleared');
-        }
-        catch (error) {
-            const errorMessage = `Failed to clear session data: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            console.error(errorMessage);
-            outputChannel.appendLine(`Clear Error: ${errorMessage}`);
-            vscode.window.showErrorMessage('Failed to clear session data');
+    const clearCommand = vscode.commands.registerCommand('sessionRecap.clear', async () => {
+        if (errorHandlingService) {
+            await errorHandlingService.executeWithErrorHandling(async () => {
+                sessionTracker.reset();
+                errorHandlingService.logInfo('Extension', 'Session data cleared');
+                errorHandlingService.getErrorHandler().showUserInfo('Session data cleared');
+            }, { component: 'Extension', operation: 'clearSession' });
         }
     });
     // Command to refresh team dashboard
     const refreshTeamCommand = vscode.commands.registerCommand('sessionRecap.refreshTeam', async () => {
-        try {
-            if (teamDashboardService) {
+        if (errorHandlingService && teamDashboardService) {
+            await errorHandlingService.executeWithErrorHandling(async () => {
                 await teamDashboardService.refreshDashboard();
-                vscode.window.showInformationMessage('Team dashboard refreshed');
-            }
-        }
-        catch (error) {
-            const errorMessage = `Failed to refresh team dashboard: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            console.error(errorMessage);
-            outputChannel.appendLine(`Team Refresh Error: ${errorMessage}`);
-            vscode.window.showErrorMessage('Failed to refresh team dashboard');
+                errorHandlingService.getErrorHandler().showUserInfo('Team dashboard refreshed');
+            }, { component: 'Extension', operation: 'refreshTeamDashboard' });
         }
     });
     // Command to opt in to team sharing
     const optInCommand = vscode.commands.registerCommand('sessionRecap.optInTeam', async () => {
-        try {
-            if (teamDashboardService) {
+        if (errorHandlingService && teamDashboardService) {
+            await errorHandlingService.executeWithErrorHandling(async () => {
                 await teamDashboardService.handleOptIn();
-            }
-        }
-        catch (error) {
-            const errorMessage = `Failed to opt in to team sharing: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            console.error(errorMessage);
-            outputChannel.appendLine(`Opt-in Error: ${errorMessage}`);
-            vscode.window.showErrorMessage('Failed to opt in to team sharing');
+            }, { component: 'Extension', operation: 'optInTeamSharing' });
         }
     });
     // Command to opt out of team sharing
     const optOutCommand = vscode.commands.registerCommand('sessionRecap.optOutTeam', async () => {
-        try {
-            if (teamDashboardService) {
+        if (errorHandlingService && teamDashboardService) {
+            await errorHandlingService.executeWithErrorHandling(async () => {
                 await teamDashboardService.handleOptOut();
-            }
-        }
-        catch (error) {
-            const errorMessage = `Failed to opt out of team sharing: ${error instanceof Error ? error.message : 'Unknown error'}`;
-            console.error(errorMessage);
-            outputChannel.appendLine(`Opt-out Error: ${errorMessage}`);
-            vscode.window.showErrorMessage('Failed to opt out of team sharing');
+            }, { component: 'Extension', operation: 'optOutTeamSharing' });
         }
     });
     // Command to show output channel
     const showLogsCommand = vscode.commands.registerCommand('sessionRecap.showLogs', () => {
-        outputChannel.show();
+        if (errorHandlingService) {
+            errorHandlingService.showLogs();
+        }
+        else {
+            outputChannel.show();
+        }
     });
-    context.subscriptions.push(refreshCommand, clearCommand, refreshTeamCommand, optInCommand, optOutCommand, showLogsCommand);
+    // Command to show telemetry summary
+    const showTelemetryCommand = vscode.commands.registerCommand('sessionRecap.showTelemetry', () => {
+        if (errorHandlingService) {
+            const summary = errorHandlingService.getTelemetrySummary();
+            const summaryText = JSON.stringify(summary, null, 2);
+            vscode.workspace.openTextDocument({
+                content: summaryText,
+                language: 'json'
+            }).then(doc => {
+                vscode.window.showTextDocument(doc);
+            });
+            errorHandlingService.logInfo('Extension', 'Telemetry summary displayed');
+        }
+    });
+    // Command to set log level
+    const setLogLevelCommand = vscode.commands.registerCommand('sessionRecap.setLogLevel', async () => {
+        if (errorHandlingService) {
+            const levels = ['ERROR', 'WARN', 'INFO', 'DEBUG'];
+            const selected = await vscode.window.showQuickPick(levels, {
+                placeHolder: 'Select log level'
+            });
+            if (selected) {
+                const logLevel = LoggingService_1.LogLevel[selected];
+                errorHandlingService.setLogLevel(logLevel);
+                errorHandlingService.getErrorHandler().showUserInfo(`Log level set to ${selected}`);
+            }
+        }
+    });
+    context.subscriptions.push(refreshCommand, clearCommand, refreshTeamCommand, optInCommand, optOutCommand, showLogsCommand, showTelemetryCommand, setLogLevelCommand);
 }
 //# sourceMappingURL=extension.js.map

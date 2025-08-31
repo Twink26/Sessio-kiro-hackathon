@@ -58,6 +58,16 @@
         "command": "sessionRecap.showLogs",
         "title": "Show Session Recap Logs",
         "icon": "$(output)"
+      },
+      {
+        "command": "sessionRecap.showTelemetry",
+        "title": "Show Telemetry Summary",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "sessionRecap.setLogLevel",
+        "title": "Set Log Level",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -167,6 +177,17 @@
             "debug:"
           ],
           "description": "Commit message patterns to exclude from tracking"
+        },
+        "sessionRecap.logLevel": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warn", 
+            "info",
+            "debug"
+          ],
+          "default": "info",
+          "description": "Logging level for the extension"
         }
       }
     }
