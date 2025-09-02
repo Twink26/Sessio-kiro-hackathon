@@ -199,7 +199,12 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "jest"
+    "test:unit": "jest --selectProjects unit",
+    "test:integration": "jest --selectProjects integration --runInBand",
+    "test:all": "jest --runInBand",
+    "test:integration:runner": "ts-node src/__tests__/integration/run-integration-tests.ts",
+    "test:coverage": "jest --coverage --runInBand",
+    "test:watch": "jest --watch --selectProjects unit"
   },
   "devDependencies": {
     "@types/node": "16.x",
