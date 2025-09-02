@@ -8,6 +8,7 @@ import { TeamDataAggregator } from './services/TeamDataAggregator';
 import { TeamDashboardService } from './services/TeamDashboardService';
 import { ConfigurationService } from './services/ConfigurationService';
 import { ErrorHandlingService } from './services/ErrorHandlingService';
+import { PerformanceMonitor } from './services/PerformanceMonitor';
 import { LogLevel } from './services/LoggingService';
 
 let sessionTracker: SessionTracker;
@@ -18,6 +19,7 @@ let teamDataAggregator: TeamDataAggregator;
 let teamDashboardService: TeamDashboardService;
 let configurationService: ConfigurationService;
 let errorHandlingService: ErrorHandlingService;
+let performanceMonitor: PerformanceMonitor;
 let outputChannel: vscode.OutputChannel;
 
 /**
@@ -25,7 +27,13 @@ let outputChannel: vscode.OutputChannel;
  * Called when VS Code starts up (onStartupFinished activation event)
  */
 export async function activate(context: vscode.ExtensionContext) {
+    const activationTimer = PerformanceMonitor.getInstance().startTimer('Extension.activate');
+    
     try {
+        // Initialize performance monitoring first
+        performanceMonitor = PerformanceMonitor.getInstance();
+        context.subscriptions.push(performanceMonitor);
+
         // Create output channel for logging
         outputChannel = vscode.window.createOutputChannel('Session Recap');
         context.subscriptions.push(outputChannel);
@@ -127,6 +135,15 @@ export async function activate(context: vscode.ExtensionContext) {
         registerCommands(context);
 
         errorHandlingService.logInfo('Extension', 'Session Recap extension initialization complete', true);
+        
+        // Complete activation timing
+        const activationDuration = activationTimer.end();
+        errorHandlingService.logInfo('Extension', `Activation completed in ${activationDuration.toFixed(2)}ms`);
+        
+        // Log performance summary if activation was slow
+        if (activationDuration > 500) {
+            performanceMonitor.logPerformanceSummary();
+        }
     } catch (error) {
         const errorMessage = `Failed to activate Session Recap extension: ${error instanceof Error ? error.message : 'Unknown error'}`;
         console.error(errorMessage);
@@ -183,6 +200,12 @@ export async function deactivate() {
         // Dispose team dashboard service
         if (teamDashboardService) {
             teamDashboardService.dispose();
+        }
+        
+        // Log final performance summary
+        if (performanceMonitor) {
+            performanceMonitor.logPerformanceSummary();
+            performanceMonitor.dispose();
         }
         
         // Dispose error handling service last

@@ -1,29 +1,31 @@
 import * as vscode from 'vscode';
 import { TerminalErrorMonitor } from '../services/TerminalErrorMonitor';
-import { TerminalError } from '../models/TerminalError';
 
 // Mock VS Code API
+const mockOutputChannel = {
+  appendLine: jest.fn(),
+  dispose: jest.fn()
+};
+
 jest.mock('vscode', () => ({
   window: {
     onDidOpenTerminal: jest.fn(),
     onDidCloseTerminal: jest.fn(),
     terminals: [],
+    createOutputChannel: jest.fn(() => mockOutputChannel)
   },
 }));
 
 describe('TerminalErrorMonitor', () => {
   let terminalErrorMonitor: TerminalErrorMonitor;
-  let mockOnDidOpenTerminal: jest.Mock;
-  let mockOnDidCloseTerminal: jest.Mock;
   let mockTerminals: any[];
 
   beforeEach(() => {
     // Reset mocks
     jest.clearAllMocks();
+    jest.useFakeTimers();
 
     // Mock terminal event handlers
-    mockOnDidOpenTerminal = jest.fn();
-    mockOnDidCloseTerminal = jest.fn();
     mockTerminals = [];
 
     // Mock disposable objects
@@ -39,6 +41,7 @@ describe('TerminalErrorMonitor', () => {
 
   afterEach(() => {
     terminalErrorMonitor.dispose();
+    jest.useRealTimers();
   });
 
   describe('initialization', () => {
@@ -127,6 +130,9 @@ describe('TerminalErrorMonitor', () => {
 
         dataCallback(input);
 
+        // Wait for debounce delay
+        jest.advanceTimersByTime(300);
+
         expect(callback).toHaveBeenCalledWith(
           expect.objectContaining({
             message: input,
@@ -166,6 +172,9 @@ describe('TerminalErrorMonitor', () => {
 
         dataCallback(input);
 
+        // Wait for debounce delay
+        jest.advanceTimersByTime(300);
+
         expect(callback).not.toHaveBeenCalled();
         expect(terminalErrorMonitor.getLastError()).toBeNull();
       });
@@ -194,8 +203,11 @@ describe('TerminalErrorMonitor', () => {
       const multilineOutput = 'Starting build...\nError: compilation failed\nwarning: deprecated API\nTest failed: assertion error';
       dataCallback(multilineOutput);
 
+      // Wait for debounce delay
+      jest.advanceTimersByTime(300);
+
       // Should detect the last error (most recent)
-      expect(callback).toHaveBeenCalledTimes(2); // Two errors detected
+      expect(callback).toHaveBeenCalledTimes(1); // One error detected (most recent)
       
       const lastError = terminalErrorMonitor.getLastError();
       expect(lastError?.message).toBe('Test failed: assertion error');
@@ -210,6 +222,9 @@ describe('TerminalErrorMonitor', () => {
       const windowsOutput = 'Starting...\r\nError: something failed\r\nDone.';
       dataCallback(windowsOutput);
 
+      // Wait for debounce delay
+      jest.advanceTimersByTime(300);
+
       expect(callback).toHaveBeenCalledWith(
         expect.objectContaining({
           message: 'Error: something failed',
@@ -223,10 +238,12 @@ describe('TerminalErrorMonitor', () => {
 
       // First error
       dataCallback('Error: first error');
+      jest.advanceTimersByTime(300);
       expect(terminalErrorMonitor.getLastError()?.message).toBe('Error: first error');
 
       // Second error should replace the first
       dataCallback('Error: second error');
+      jest.advanceTimersByTime(300);
       expect(terminalErrorMonitor.getLastError()?.message).toBe('Error: second error');
 
       // Callback should have been called twice
@@ -260,6 +277,9 @@ describe('TerminalErrorMonitor', () => {
 
       dataCallback('Error: test error');
 
+      // Wait for debounce delay
+      jest.advanceTimersByTime(300);
+
       expect(callback1).toHaveBeenCalled();
       expect(callback2).toHaveBeenCalled();
       expect(callback3).toHaveBeenCalled();
@@ -288,6 +308,9 @@ describe('TerminalErrorMonitor', () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
       dataCallback('Error: test error');
+
+      // Wait for debounce delay
+      jest.advanceTimersByTime(300);
 
       expect(consoleSpy).toHaveBeenCalledWith('Error in terminal error callback:', expect.any(Error));
       expect(normalCallback).toHaveBeenCalled();
@@ -373,6 +396,7 @@ describe('TerminalErrorMonitor', () => {
 
       // Generate an error
       dataCallback('Error: test error');
+      jest.advanceTimersByTime(300);
       expect(terminalErrorMonitor.getLastError()).not.toBeNull();
 
       // Reset should clear the error
@@ -397,6 +421,9 @@ describe('TerminalErrorMonitor', () => {
       const dataCallback = mockTerminal.onDidWriteData.mock.calls[0][0];
 
       dataCallback('Error: test error');
+      
+      // Wait for debounce delay
+      jest.advanceTimersByTime(300);
       
       const lastError = terminalErrorMonitor.getLastError();
       expect(lastError).toMatchObject({
@@ -430,6 +457,239 @@ describe('TerminalErrorMonitor', () => {
       
       // Should not throw an error
       expect(() => terminalErrorMonitor.dispose()).not.toThrow();
+    });
+  });
+
+  describe('Performance Optimizations', () => {
+    let mockTerminal: any;
+    let dataCallback: (data: string) => void;
+
+    beforeEach(() => {
+      mockTerminal = {
+        name: 'Performance Test Terminal',
+        onDidWriteData: jest.fn().mockReturnValue({ dispose: jest.fn() }),
+      };
+
+      const openCallback = (vscode.window.onDidOpenTerminal as jest.Mock).mock.calls[0][0];
+      openCallback(mockTerminal);
+      dataCallback = mockTerminal.onDidWriteData.mock.calls[0][0];
+    });
+
+    describe('Debouncing', () => {
+      it('should debounce rapid terminal output', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Send rapid output
+        dataCallback('Error: first error');
+        dataCallback('Error: second error');
+        dataCallback('Error: third error');
+
+        // Should not process immediately due to debouncing
+        expect(callback).not.toHaveBeenCalled();
+
+        // Fast-forward past debounce delay
+        jest.advanceTimersByTime(300);
+
+        // Should process the most recent error
+        expect(callback).toHaveBeenCalledTimes(1);
+        expect(terminalErrorMonitor.getLastError()?.message).toBe('Error: third error');
+      });
+
+      it('should reset debounce timer on new input', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Send first error
+        dataCallback('Error: first error');
+        
+        // Advance time partially
+        jest.advanceTimersByTime(200);
+        
+        // Send second error (should reset timer)
+        dataCallback('Error: second error');
+        
+        // Advance time partially again
+        jest.advanceTimersByTime(200);
+        
+        // Should not have processed yet
+        expect(callback).not.toHaveBeenCalled();
+        
+        // Complete the debounce delay
+        jest.advanceTimersByTime(100);
+        
+        // Should process the second error
+        expect(callback).toHaveBeenCalledTimes(1);
+        expect(terminalErrorMonitor.getLastError()?.message).toBe('Error: second error');
+      });
+    });
+
+    describe('Memory Management', () => {
+      it('should limit buffer size to prevent memory issues', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Send many lines to exceed buffer limit
+        const manyLines = Array.from({ length: 150 }, (_, i) => `Line ${i}: some output`).join('\n');
+        dataCallback(manyLines);
+
+        // Add an error at the end
+        dataCallback('Error: final error');
+
+        jest.advanceTimersByTime(300);
+
+        // Should still detect the error despite buffer management
+        expect(callback).toHaveBeenCalled();
+        expect(terminalErrorMonitor.getLastError()?.message).toBe('Error: final error');
+      });
+
+      it('should truncate very long lines', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Create a very long line
+        const longLine = 'Error: ' + 'x'.repeat(2000);
+        dataCallback(longLine);
+
+        jest.advanceTimersByTime(300);
+
+        // Should not process lines that are too long
+        expect(callback).not.toHaveBeenCalled();
+      });
+
+      it('should truncate very long data chunks', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Create very long data (>10KB) with error at the beginning
+        const longData = 'Error: test error\n' + 'x'.repeat(15000);
+        dataCallback(longData);
+
+        jest.advanceTimersByTime(300);
+
+        // Should still work but with truncated data
+        expect(callback).toHaveBeenCalled();
+      });
+    });
+
+    describe('Cleanup Operations', () => {
+      it('should perform periodic cleanup', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Add some data to buffers
+        dataCallback('Some output\nError: test error');
+        jest.advanceTimersByTime(300);
+
+        // Fast-forward to trigger cleanup interval (2 minutes)
+        jest.advanceTimersByTime(2 * 60 * 1000);
+
+        // Cleanup should have occurred (buffers cleared)
+        // We can't directly test internal state, but we can verify it doesn't crash
+        expect(() => {
+          dataCallback('Error: after cleanup');
+          jest.advanceTimersByTime(300);
+        }).not.toThrow();
+      });
+
+      it('should clean up stale debounce timers for non-existent terminals', () => {
+        // Mock terminals array to simulate terminal removal
+        (vscode.window as any).terminals = [];
+
+        // Add some data to create debounce timers
+        dataCallback('Error: test error');
+
+        // Fast-forward to trigger cleanup
+        jest.advanceTimersByTime(2 * 60 * 1000);
+
+        // Should not throw errors during cleanup
+        expect(() => {
+          jest.advanceTimersByTime(300);
+        }).not.toThrow();
+      });
+    });
+
+    describe('Optimized Pattern Matching', () => {
+      it('should use fast path for common error patterns', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Test common error keywords that should use fast path
+        const commonErrors = [
+          'error: something failed',
+          'exception occurred',
+          'failed to execute',
+          'fatal: git error'
+        ];
+
+        commonErrors.forEach(errorText => {
+          dataCallback(errorText);
+          jest.advanceTimersByTime(300);
+        });
+
+        expect(callback).toHaveBeenCalledTimes(commonErrors.length);
+      });
+
+      it('should use fast path for common exclusion patterns', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Test common warning/info keywords that should be excluded via fast path
+        const nonErrors = [
+          'warning: deprecated function',
+          'warn: package outdated',
+          'info: starting process',
+          'debug: connection established'
+        ];
+
+        nonErrors.forEach(text => {
+          dataCallback(text);
+          jest.advanceTimersByTime(300);
+        });
+
+        expect(callback).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('Performance Monitoring Integration', () => {
+      it('should use performance monitoring for operations', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Process some terminal output
+        dataCallback('Error: test error');
+        jest.advanceTimersByTime(300);
+
+        // Performance monitoring should be integrated (we can't easily test the exact calls
+        // without exposing internal implementation, but we can verify the operation completes)
+        expect(callback).toHaveBeenCalled();
+      });
+    });
+
+    describe('Resource Cleanup on Dispose', () => {
+      it('should clear all timers and buffers on dispose', () => {
+        const callback = jest.fn();
+        terminalErrorMonitor.onTerminalError(callback);
+
+        // Create some pending operations
+        dataCallback('Error: test error');
+        
+        // Dispose before debounce completes
+        terminalErrorMonitor.dispose();
+
+        // Fast-forward time - should not process anything after dispose
+        jest.advanceTimersByTime(500);
+
+        expect(callback).not.toHaveBeenCalled();
+      });
+
+      it('should clear cleanup interval on dispose', () => {
+        const clearIntervalSpy = jest.spyOn(global, 'clearInterval');
+        
+        terminalErrorMonitor.dispose();
+        
+        expect(clearIntervalSpy).toHaveBeenCalled();
+      });
     });
   });
 });

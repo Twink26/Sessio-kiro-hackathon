@@ -34,6 +34,7 @@ const TeamDataAggregator_1 = require("./services/TeamDataAggregator");
 const TeamDashboardService_1 = require("./services/TeamDashboardService");
 const ConfigurationService_1 = require("./services/ConfigurationService");
 const ErrorHandlingService_1 = require("./services/ErrorHandlingService");
+const PerformanceMonitor_1 = require("./services/PerformanceMonitor");
 const LoggingService_1 = require("./services/LoggingService");
 let sessionTracker;
 let sidebarProvider;
@@ -43,13 +44,18 @@ let teamDataAggregator;
 let teamDashboardService;
 let configurationService;
 let errorHandlingService;
+let performanceMonitor;
 let outputChannel;
 /**
  * Extension activation function
  * Called when VS Code starts up (onStartupFinished activation event)
  */
 async function activate(context) {
+    const activationTimer = PerformanceMonitor_1.PerformanceMonitor.getInstance().startTimer('Extension.activate');
     try {
+        // Initialize performance monitoring first
+        performanceMonitor = PerformanceMonitor_1.PerformanceMonitor.getInstance();
+        context.subscriptions.push(performanceMonitor);
         // Create output channel for logging
         outputChannel = vscode.window.createOutputChannel('Session Recap');
         context.subscriptions.push(outputChannel);
@@ -108,6 +114,13 @@ async function activate(context) {
         // Register commands
         registerCommands(context);
         errorHandlingService.logInfo('Extension', 'Session Recap extension initialization complete', true);
+        // Complete activation timing
+        const activationDuration = activationTimer.end();
+        errorHandlingService.logInfo('Extension', `Activation completed in ${activationDuration.toFixed(2)}ms`);
+        // Log performance summary if activation was slow
+        if (activationDuration > 500) {
+            performanceMonitor.logPerformanceSummary();
+        }
     }
     catch (error) {
         const errorMessage = `Failed to activate Session Recap extension: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -152,6 +165,11 @@ async function deactivate() {
         // Dispose team dashboard service
         if (teamDashboardService) {
             teamDashboardService.dispose();
+        }
+        // Log final performance summary
+        if (performanceMonitor) {
+            performanceMonitor.logPerformanceSummary();
+            performanceMonitor.dispose();
         }
         // Dispose error handling service last
         if (errorHandlingService) {
