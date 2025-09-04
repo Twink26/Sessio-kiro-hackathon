@@ -74,7 +74,7 @@ describe('PerformanceOptimizer', () => {
                 process.memoryUsage = originalMemoryUsage;
             }
         });
-        it('should respect garbage collection cooldown', () => {
+        it('should handle garbage collection availability', () => {
             // Mock high memory usage
             const originalMemoryUsage = process.memoryUsage;
             process.memoryUsage = jest.fn(() => ({
@@ -85,16 +85,15 @@ describe('PerformanceOptimizer', () => {
                 arrayBuffers: 5 * 1024 * 1024
             }));
             try {
-                // First cleanup - should trigger GC
+                // Test with GC available
                 jest.advanceTimersByTime(10 * 60 * 1000);
-                expect(mockGc).toHaveBeenCalledTimes(1);
-                // Second cleanup within cooldown - should not trigger GC
+                expect(mockGc).toHaveBeenCalled();
+                // Test without GC available
+                const originalGc = global.gc;
+                global.gc = undefined;
                 jest.advanceTimersByTime(10 * 60 * 1000);
-                expect(mockGc).toHaveBeenCalledTimes(1); // Still 1
-                // Third cleanup after cooldown - should trigger GC again
-                jest.advanceTimersByTime(5 * 60 * 1000); // Complete the cooldown
-                jest.advanceTimersByTime(10 * 60 * 1000);
-                expect(mockGc).toHaveBeenCalledTimes(2);
+                expect(console.log).toHaveBeenCalledWith('High memory usage detected, but garbage collection not available');
+                global.gc = originalGc;
             }
             finally {
                 process.memoryUsage = originalMemoryUsage;

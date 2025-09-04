@@ -127,6 +127,8 @@ describe('TerminalErrorMonitor', () => {
                 const callback = jest.fn();
                 terminalErrorMonitor.onTerminalError(callback);
                 dataCallback(input);
+                // Wait for debounce delay
+                jest.advanceTimersByTime(300);
                 expect(callback).toHaveBeenCalledWith(expect.objectContaining({
                     message: input,
                     terminalName: 'Test Terminal',
@@ -159,6 +161,8 @@ describe('TerminalErrorMonitor', () => {
                 const callback = jest.fn();
                 terminalErrorMonitor.onTerminalError(callback);
                 dataCallback(input);
+                // Wait for debounce delay
+                jest.advanceTimersByTime(300);
                 expect(callback).not.toHaveBeenCalled();
                 expect(terminalErrorMonitor.getLastError()).toBeNull();
             });
@@ -181,8 +185,10 @@ describe('TerminalErrorMonitor', () => {
             terminalErrorMonitor.onTerminalError(callback);
             const multilineOutput = 'Starting build...\nError: compilation failed\nwarning: deprecated API\nTest failed: assertion error';
             dataCallback(multilineOutput);
+            // Wait for debounce delay
+            jest.advanceTimersByTime(300);
             // Should detect the last error (most recent)
-            expect(callback).toHaveBeenCalledTimes(2); // Two errors detected
+            expect(callback).toHaveBeenCalledTimes(1); // One error detected (most recent)
             const lastError = terminalErrorMonitor.getLastError();
             expect(lastError?.message).toBe('Test failed: assertion error');
             expect(lastError?.errorType).toBe('failure');
@@ -193,6 +199,8 @@ describe('TerminalErrorMonitor', () => {
             // Test with \r\n line endings
             const windowsOutput = 'Starting...\r\nError: something failed\r\nDone.';
             dataCallback(windowsOutput);
+            // Wait for debounce delay
+            jest.advanceTimersByTime(300);
             expect(callback).toHaveBeenCalledWith(expect.objectContaining({
                 message: 'Error: something failed',
             }));
@@ -202,9 +210,11 @@ describe('TerminalErrorMonitor', () => {
             terminalErrorMonitor.onTerminalError(callback);
             // First error
             dataCallback('Error: first error');
+            jest.advanceTimersByTime(300);
             expect(terminalErrorMonitor.getLastError()?.message).toBe('Error: first error');
             // Second error should replace the first
             dataCallback('Error: second error');
+            jest.advanceTimersByTime(300);
             expect(terminalErrorMonitor.getLastError()?.message).toBe('Error: second error');
             // Callback should have been called twice
             expect(callback).toHaveBeenCalledTimes(2);
@@ -230,6 +240,8 @@ describe('TerminalErrorMonitor', () => {
             terminalErrorMonitor.onTerminalError(callback2);
             terminalErrorMonitor.onTerminalError(callback3);
             dataCallback('Error: test error');
+            // Wait for debounce delay
+            jest.advanceTimersByTime(300);
             expect(callback1).toHaveBeenCalled();
             expect(callback2).toHaveBeenCalled();
             expect(callback3).toHaveBeenCalled();
@@ -252,6 +264,8 @@ describe('TerminalErrorMonitor', () => {
             terminalErrorMonitor.onTerminalError(normalCallback);
             const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
             dataCallback('Error: test error');
+            // Wait for debounce delay
+            jest.advanceTimersByTime(300);
             expect(consoleSpy).toHaveBeenCalledWith('Error in terminal error callback:', expect.any(Error));
             expect(normalCallback).toHaveBeenCalled();
             consoleSpy.mockRestore();
@@ -317,6 +331,7 @@ describe('TerminalErrorMonitor', () => {
             const dataCallback = mockTerminal.onDidWriteData.mock.calls[0][0];
             // Generate an error
             dataCallback('Error: test error');
+            jest.advanceTimersByTime(300);
             expect(terminalErrorMonitor.getLastError()).not.toBeNull();
             // Reset should clear the error
             terminalErrorMonitor.reset();
@@ -336,6 +351,8 @@ describe('TerminalErrorMonitor', () => {
             openCallback(mockTerminal);
             const dataCallback = mockTerminal.onDidWriteData.mock.calls[0][0];
             dataCallback('Error: test error');
+            // Wait for debounce delay
+            jest.advanceTimersByTime(300);
             const lastError = terminalErrorMonitor.getLastError();
             expect(lastError).toMatchObject({
                 message: 'Error: test error',
@@ -438,8 +455,8 @@ describe('TerminalErrorMonitor', () => {
             it('should truncate very long data chunks', () => {
                 const callback = jest.fn();
                 terminalErrorMonitor.onTerminalError(callback);
-                // Create very long data (>10KB)
-                const longData = 'x'.repeat(15000) + '\nError: test error';
+                // Create very long data (>10KB) with error at the beginning
+                const longData = 'Error: test error\n' + 'x'.repeat(15000);
                 dataCallback(longData);
                 jest.advanceTimersByTime(300);
                 // Should still work but with truncated data

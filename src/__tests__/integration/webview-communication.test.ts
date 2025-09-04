@@ -218,7 +218,7 @@ describe('Webview Communication Integration Tests', () => {
             const sidebarProvider = new SidebarPanelProvider(mockContext.extensionUri);
             let visibilityCallback: Function | undefined;
 
-            mockWebviewView.onDidChangeVisibility.mockImplementation((callback) => {
+            mockWebviewView.onDidChangeVisibility.mockImplementation((callback: any) => {
                 visibilityCallback = callback;
                 return { dispose: jest.fn() };
             });
@@ -240,7 +240,7 @@ describe('Webview Communication Integration Tests', () => {
             const sidebarProvider = new SidebarPanelProvider(mockContext.extensionUri);
             let disposeCallback: Function | undefined;
 
-            mockWebviewView.onDidDispose.mockImplementation((callback) => {
+            mockWebviewView.onDidDispose.mockImplementation((callback: any) => {
                 disposeCallback = callback;
                 return { dispose: jest.fn() };
             });
@@ -314,6 +314,8 @@ describe('Webview Communication Integration Tests', () => {
             teamProvider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
 
             const teamData = {
+                teamId: 'test-team',
+                aggregatedAt: new Date(),
                 members: [
                     {
                         id: 'user1',
@@ -543,7 +545,7 @@ describe('Webview Communication Integration Tests', () => {
 
             // Act - Simulate disposal
             let disposeCallback: Function | undefined;
-            mockWebviewView.onDidDispose.mockImplementation((callback) => {
+            mockWebviewView.onDidDispose.mockImplementation((callback: any) => {
                 disposeCallback = callback;
                 return mockDisposable;
             });
